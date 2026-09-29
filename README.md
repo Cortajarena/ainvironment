@@ -1,4 +1,4 @@
-# ainvironment
+# ![ainvironment](public/logo.svg)
 
 Containerized cloud dev environment — successor to `scripts/nanocode.sh`
 (the old host-install script, kept here as a porting reference).
