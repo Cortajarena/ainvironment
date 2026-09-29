@@ -1,0 +1,107 @@
+# ============================================================
+# ainvironment — dev services
+#
+# One image (./Dockerfile), three services — only command, port
+# and env differ. Ports are published on loopback only; the
+# host-level cloudflared maps subdomains onto them (see
+# config/cloudflared/config.yml):
+#
+#   code.<domain>     -> 127.0.0.1:8080   code-server
+#   opencode.<domain> -> 127.0.0.1:4096   opencode v2 UI/API
+#   chamber.<domain>  -> 127.0.0.1:3000   openchamber
+#
+#   docker compose up -d              # everything
+#   docker compose up -d <service>    # just one
+#   docker compose logs -f <service>
+#
+# Future: service selection via compose profiles (see README).
+# ============================================================
+
+name: ainvironment
+
+x-dev: &dev
+  build:
+    context: .
+    dockerfile: Dockerfile
+    args:
+      DEV_UID: ${DEV_UID:-1000}
+      DEV_GID: ${DEV_GID:-1000}
+  image: ainvironment/dev:latest
+  init: true
+  restart: unless-stopped
+  working_dir: /home/dev/workspaces
+  networks:
+    - dev
+  group_add:
+    - "${DOCKER_GID:-987}"     # host docker group -> docker.sock access
+  volumes:
+    # code
+    - ${WORKSPACES_DIR:-/nvme0n1-disk/workspaces}:/home/dev/workspaces
+    # DooD: host socket + host CLI/plugin (client matches daemon)
+    - /var/run/docker.sock:/var/run/docker.sock
+    - ${DOCKER_BIN:-/usr/bin/docker}:/usr/bin/docker:ro
+    - ${DOCKER_PLUGINS:-/usr/libexec/docker/cli-plugins}:/usr/lib/docker/cli-plugins:ro
+    # credentials & keys (bind-mounted from the invoking user's home)
+    - ${HOME}/.ssh:/home/dev/.ssh
+    - ${HOME}/.aws:/home/dev/.aws
+    - ${HOME}/.config/gcloud:/home/dev/.config/gcloud
+    # persistent tool state (named volumes; live on NVMe thanks to
+    # setup.sh relocating /var/lib/docker)
+    - opencode-data:/home/dev/.local/share/opencode
+    - opencode-config:/home/dev/.config/opencode
+    - opencode-home:/home/dev/.opencode
+    - openchamber-config:/home/dev/.config/openchamber
+    - code-server-data:/home/dev/.local/share/code-server
+
+services:
+  code-server:
+    <<: *dev
+    command: code-server --bind-addr 0.0.0.0:8080 --auth password /home/dev/workspaces
+    ports:
+      - "127.0.0.1:${PORT_CODE_SERVER:-8080}:8080"
+    environment:
+      # set one of the two in .env (hashed wins)
+      PASSWORD: ${CODE_SERVER_PASSWORD:-}
+      HASHED_PASSWORD: ${CODE_SERVER_HASHED_PASSWORD:-}
+
+  opencode:
+    <<: *dev
+    command: opencode serve --hostname 0.0.0.0 --port 4096
+    ports:
+      - "127.0.0.1:${PORT_OPENCODE:-4096}:4096"
+
+  openchamber:
+    <<: *dev
+    command: openchamber serve --foreground --host 0.0.0.0 --port 3000
+    environment:
+      # share the `opencode` service's server so both UIs use the same
+      # sessions/auth — drop these to spawn a private one instead
+      OPENCODE_HOST: http://opencode:4096
+      OPENCODE_PORT: 4096
+      OPENCODE_SKIP_START: "true"
+      OPENCHAMBER_UI_PASSWORD: ${OPENCHAMBER_UI_PASSWORD:-}
+    ports:
+      - "127.0.0.1:${PORT_OPENCHAMBER:-3000}:3000"
+    depends_on:
+      - opencode
+
+  # --- alternative: run cloudflared in the stack instead of the host ---
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   command: tunnel --config /etc/cloudflared/config.yml run
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./config/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+  #     - ./config/cloudflared/cred.json:/etc/cloudflared/cred.json:ro
+  #   networks: [dev]
+
+networks:
+  dev:
+    driver: bridge
+
+volumes:
+  opencode-data:
+  opencode-config:
+  opencode-home:
+  openchamber-config:
+  code-server-data:

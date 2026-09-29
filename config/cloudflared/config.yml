@@ -1,0 +1,27 @@
+# ============================================================
+# cloudflared ingress config — DRAFT
+# ------------------------------------------------------------
+# Deployed to /etc/cloudflared/config.yml by ./setup.sh step 5.
+# Maps each subdomain onto the loopback port published by the
+# matching docker-compose.yml service.
+#
+# Two ways this is consumed:
+#   * locally-managed tunnel  (credentials-file + this config):
+#       cloudflared tunnel create ainvironment
+#       -> paste the tunnel id below and point at its credentials json
+#   * token-based tunnel (remotely-managed, like the current host one):
+#       ingress comes from the Cloudflare dashboard and this file is
+#       kept as the reference copy of the same mapping.
+# ============================================================
+
+tunnel: <TUNNEL-ID>
+credentials-file: /etc/cloudflared/<TUNNEL-ID>.json
+
+ingress:
+  - hostname: code.example.com
+    service: http://localhost:8080      # code-server
+  - hostname: opencode.example.com
+    service: http://localhost:4096      # opencode serve (v2 API + web UI)
+  - hostname: chamber.example.com
+    service: http://localhost:3000      # openchamber
+  - service: http_status:404            # catch-all, keep last
